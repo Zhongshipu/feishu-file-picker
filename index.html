@@ -116,14 +116,28 @@
 
     function goBack() {
       try {
-        if (window.parent && window.parent !== window) {
-          parent.postMessage({ type: 'GO_BACK' }, '*');
+        console.log('尝试发送 GO_BACK 消息');
+        // 飞书小程序 web-view 需要特定的消息格式
+        if (typeof tt !== 'undefined' && tt.miniProgram) {
+          // 飞书小程序 web-view 环境
+          tt.miniProgram.postMessage({
+            data: { type: 'GO_BACK' }
+          });
+          console.log('通过 tt.miniProgram.postMessage 发送成功');
+        } else if (window.parent && window.parent !== window) {
+          // 标准 web-view 环境
+          parent.postMessage({
+            type: 'message',
+            data: { type: 'GO_BACK' }
+          }, '*');
+          console.log('通过 parent.postMessage 发送成功');
         } else if (window.opener) {
           window.close();
         } else {
           history.back();
         }
       } catch (e) {
+        console.error('发送消息失败:', e);
         history.back();
       }
     }
@@ -273,11 +287,32 @@
             showStatus(`解析成功！共 ${parsedItems.length} 条物资记录`, 'success');
 
             try {
-              parent.postMessage({
-                type: 'FILE_SELECTED',
-                fileName: file.name,
-                previewItems: parsedItems
-              }, '*');
+              console.log('准备发送 FILE_SELECTED 消息');
+              // 飞书小程序 web-view 需要特定的消息格式
+              if (typeof tt !== 'undefined' && tt.miniProgram) {
+                // 飞书小程序 web-view 环境
+                tt.miniProgram.postMessage({
+                  data: {
+                    type: 'FILE_SELECTED',
+                    fileName: file.name,
+                    previewItems: parsedItems
+                  }
+                });
+                console.log('通过 tt.miniProgram.postMessage 发送成功');
+              } else if (window.parent && window.parent !== window) {
+                // 标准 web-view 环境
+                parent.postMessage({
+                  type: 'message',
+                  data: {
+                    type: 'FILE_SELECTED',
+                    fileName: file.name,
+                    previewItems: parsedItems
+                  }
+                }, '*');
+                console.log('通过 parent.postMessage 发送成功');
+              } else {
+                console.error('无法发送消息：未知环境');
+              }
             } catch (err) {
               console.error('postMessage failed:', err);
             }
