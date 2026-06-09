@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>选择Excel文件</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+      background: #f5f7fa;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    .container {
+      text-align: center;
+      background: white;
+      padding: 40px 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+      max-width: 400px;
+      width: 100%;
+    }
+    .title {
+      font-size: 18px;
+      color: #333;
+      margin-bottom: 20px;
+      font-weight: 500;
+    }
+    .btn {
+      padding: 14px 32px;
+      font-size: 16px;
+      background: #165DFF;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn:hover {
+      background: #0E42D2;
+    }
+    #fileInput {
+      display: none;
+    }
+    .hint {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #999;
+      line-height: 1.6;
+    }
+    .status {
+      margin-top: 20px;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: none;
+    }
+    .status.success {
+      background: #e8f5e9;
+      color: #2e7d32;
+      display: block;
+    }
+    .status.error {
+      background: #ffebee;
+      color: #c62828;
+      display: block;
+    }
+    .status.loading {
+      background: #e3f2fd;
+      color: #1565c0;
+      display: block;
+    }
+    .back-btn {
+      margin-top: 20px;
+      padding: 10px 24px;
+      font-size: 14px;
+      background: #f0f0f0;
+      color: #666;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="title">选择 Excel/CSV 文件</div>
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+    <button class="btn" onclick="document.getElementById('fileInput').click()">📊 选择本地文件</button>
+    <div class="hint">
+      支持格式：.xlsx / .xls / .csv<br>
+      字段：药物名称、规格、基数量、实数量、药品有效期
+    </div>
+    <div id="status" class="status"></div>
+    <button class="back-btn" onclick="goBack()">← 返回</button>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+
+    function showStatus(message, type) {
+      statusEl.className = 'status ' + type;
+      statusEl.textContent = message;
+    }
+
+    function clearStatus() {
+      statusEl.className = 'status';
+      statusEl.textContent = '';
+    }
+
+    function goBack() {
+      try {
+        if (window.parent && window.parent !== window) {
+          parent.postMessage({ type: 'GO_BACK' }, '*');
+        } else if (window.opener) {
+          window.close();
+        } else {
+          history.back();
+        }
+      } catch (e) {
+        history.back();
+      }
+    }
+
+    function parseCSV(csvString) {
+      const lines = csvString.split(/\r?\n/).filter(line => line.trim());
+      const result = [];
+
+      for (const line of lines) {
+        const row = [];
+        let current = '';
+        let inQuotes = false;
+
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          const nextChar = line[i + 1];
+
+          if (char === '"') {
+            if (inQuotes && nextChar === '"') {
+              current += '"';
+              i++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (char === ',' && !inQuotes) {
+            row.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        row.push(current.trim());
+        result.push(row);
+      }
+
+      return result;
+    }
+
+    function parseExcelData(rows) {
+      const result = [];
+      let rowIndex = 0;
+
+      const isHeaderRow = (row) => {
+        if (!row || row.length === 0) return false;
+        const firstCell = String(row[0] || '').trim();
+        return firstCell.includes('药物名称') || firstCell.includes('药品名称') ||
+               firstCell.includes('物资名称') || firstCell.includes('名称');
+      };
+
+      const getCellValue = (row, index) => {
+        if (!row || row.length <= index) return '';
+        return String(row[index] || '').trim();
+      };
+
+      const parseMultipleExpiryDates = (field) => {
+        const dates = [];
+        if (!field) return dates;
+
+        const fieldStr = String(field);
+        const parts = fieldStr.split(/[,，;；]/);
+
+        for (const part of parts) {
+          const trimmed = part.trim();
+          if (!trimmed) continue;
+
+          const datePattern = /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/;
+          const match = trimmed.match(datePattern);
+
+          if (match) {
+            const year = match[1];
+            const month = match[2].padStart(2, '0');
+            const day = match[3].padStart(2, '0');
+            dates.push(`${year}-${month}-${day}`);
+          }
+        }
+
+        return dates;
+      };
+
+      const dataRows = rows.length > 0 && isHeaderRow(rows[0]) ? rows.slice(1) : rows;
+
+      for (const row of dataRows) {
+        if (!row || row.length === 0) continue;
+
+        const name = getCellValue(row, 0);
+        const spec = getCellValue(row, 1);
+        const baseQty = parseInt(getCellValue(row, 2)) || 0;
+        const actualQty = parseInt(getCellValue(row, 3)) || 0;
+        const expiryField = getCellValue(row, 4);
+
+        if (!name) continue;
+
+        const expiryDates = parseMultipleExpiryDates(expiryField);
+
+        if (expiryDates.length === 0) {
+          result.push({
+            id: `preview_${rowIndex++}`,
+            name: name,
+            spec: spec,
+            baseQuantity: baseQty,
+            actualQuantity: actualQty,
+            unit: '',
+            expiryDate: '',
+            supplier: '',
+            location: '',
+            remark: '',
+            sourceRow: name
+          });
+        } else {
+          for (const expiryDate of expiryDates) {
+            result.push({
+              id: `preview_${rowIndex++}`,
+              name: name,
+              spec: spec,
+              baseQuantity: baseQty,
+              actualQuantity: actualQty,
+              unit: '',
+              expiryDate: expiryDate,
+              supplier: '',
+              location: '',
+              remark: '',
+              sourceRow: name
+            });
+          }
+        }
+      }
+
+      return result;
+    }
+
+    document.getElementById('fileInput').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      clearStatus();
+      showStatus('正在解析文件...', 'loading');
+
+      const reader = new FileReader();
+
+      if (file.name.endsWith('.csv')) {
+        reader.onload = function(event) {
+          try {
+            const csvText = event.target.result;
+            const jsonData = parseCSV(csvText);
+            const parsedItems = parseExcelData(jsonData);
+
+            showStatus(`解析成功！共 ${parsedItems.length} 条物资记录`, 'success');
+
+            try {
+              parent.postMessage({
+                type: 'FILE_SELECTED',
+                fileName: file.name,
+                previewItems: parsedItems
+              }, '*');
+            } catch (err) {
+              console.error('postMessage failed:', err);
+            }
+          } catch (err) {
+            console.error('解析失败:', err);
+            showStatus('文件解析失败：' + err.message, 'error');
+          }
+        };
+        reader.onerror = function() {
+          showStatus('读取文件失败', 'error');
+        };
+        reader.readAsText(file, 'UTF-8');
+      } else {
+        showStatus('请先将Excel另存为CSV格式后再导入', 'error');
+      }
+    });
+  </script>
+</body>
+</html>
